@@ -1,48 +1,31 @@
-# :package_description
+# Slug
 
-[![Latest Version on Packagist](https://img.shields.io/packagist/v/:vendor_slug/:package_slug.svg?style=flat-square)](https://packagist.org/packages/:vendor_slug/:package_slug)
-[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/:vendor_slug/:package_slug/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/:vendor_slug/:package_slug/actions?query=workflow%3Arun-tests+branch%3Amain)
-[![GitHub Code Style Action Status](https://img.shields.io/github/actions/workflow/status/:vendor_slug/:package_slug/fix-php-code-style-issues.yml?branch=main&label=code%20style&style=flat-square)](https://github.com/:vendor_slug/:package_slug/actions?query=workflow%3A"Fix+PHP+code+style+issues"+branch%3Amain)
-[![Total Downloads](https://img.shields.io/packagist/dt/:vendor_slug/:package_slug.svg?style=flat-square)](https://packagist.org/packages/:vendor_slug/:package_slug)
-<!--delete-->
----
-This repo can be used to scaffold a Laravel package. Follow these steps to get started:
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/hexatex/slug.svg?style=flat-square)](https://packagist.org/packages/hexatex/slug)
+[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/hexatex/slug/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/hexatex/slug/actions?query=workflow%3Arun-tests+branch%3Amain)
+[![GitHub Code Style Action Status](https://img.shields.io/github/actions/workflow/status/hexatex/slug/fix-php-code-style-issues.yml?branch=main&label=code%20style&style=flat-square)](https://github.com/hexatex/slug/actions?query=workflow%3A"Fix+PHP+code+style+issues"+branch%3Amain)
+[![Total Downloads](https://img.shields.io/packagist/dt/hexatex/slug.svg?style=flat-square)](https://packagist.org/packages/hexatex/slug)
 
-1. Press the "Use this template" button at the top of this repo to create a new repo with the contents of this skeleton.
-2. Run "php ./configure.php" to run a script that will replace all placeholders throughout all the files.
-3. Have fun creating your package.
-4. If you need help creating a package, consider picking up our <a href="https://laravelpackage.training">Laravel Package Training</a> video course.
----
-<!--/delete-->
-This is where your description should go. Limit it to a paragraph or two. Consider adding a small example.
-
-## Support us
-
-[<img src="https://github-ads.s3.eu-central-1.amazonaws.com/:package_name.jpg?t=1" width="419px" />](https://spatie.be/github-ad-click/:package_name)
-
-We invest a lot of resources into creating [best in class open source packages](https://spatie.be/open-source). You can support us by [buying one of our paid products](https://spatie.be/open-source/support-us).
-
-We highly appreciate you sending us a postcard from your hometown, mentioning which of our package(s) you are using. You'll find our address on [our contact page](https://spatie.be/about-us). We publish all received postcards on [our virtual postcard wall](https://spatie.be/open-source/postcards).
+This package provides an easy way to assign slugs to multiple models and retrieve those models by their slug strings.
 
 ## Installation
 
 You can install the package via composer:
 
 ```bash
-composer require :vendor_slug/:package_slug
+composer require hexatex/slug
 ```
 
 You can publish and run the migrations with:
 
 ```bash
-php artisan vendor:publish --tag=":package_slug-migrations"
+php artisan vendor:publish --tag="slug-migrations"
 php artisan migrate
 ```
 
 You can publish the config file with:
 
 ```bash
-php artisan vendor:publish --tag=":package_slug-config"
+php artisan vendor:publish --tag="slug-config"
 ```
 
 This is the contents of the published config file:
@@ -55,14 +38,164 @@ return [
 Optionally, you can publish the views using
 
 ```bash
-php artisan vendor:publish --tag=":package_slug-views"
+php artisan vendor:publish --tag="slug-views"
 ```
 
 ## Usage
+I have included basic usage instructions as well as a full implementation. Please review the full implementation.
 
+### Basic Instructions
+The model that you would like to assign slugs to must implement the Sluggable interface.
 ```php
-$variable = new VendorName\Skeleton();
-echo $variable->echoPhrase('Hello, VendorName!');
+class Post extends Model implements Sluggable
+{
+    /**
+     * Return the class definition of the Laravel JsonResource class for this model
+     * @return Attribute
+     */
+    public function resourceClass()
+    {
+        return Attribute::get(fn () => PostResource::class);
+    }
+
+    /**
+     * Load any relationships that you want loaded by the \Hexatex\Slug\SlugController get route
+     * @return void
+     */
+    public function loadForSlugGet()
+    {
+        $this->load(['images']);
+    }
+
+    /**
+     * Slug
+     * @return MorphOne
+     */
+    public function slug(): MorphOne
+    {
+        return $this->morphOne(Slug::class, 'sluggable')
+    }
+}
+```
+
+It is recommended that you use the service class.
+```php
+$this->slugService->store(['slug' => $slug], $post);
+```
+However there is also a facade available.
+```php
+SlugFacade::store(['slug' => $slug], $post);
+```
+
+### Full implementation
+```php
+class Post extends Model implements Sluggable
+{
+    /*
+     * Sluggable
+     */
+    public function resourceClass()
+    {
+        return Attribute::get(fn () => PostResource::class);
+    }
+
+    public function loadForSlugGet()
+    {
+        $this->load(['images']);
+    }
+
+    public function slug(): MorphOne
+    {
+        return $this->morphOne(Slug::class, 'sluggable')
+    }
+    
+    /*
+     * Relationships
+     */
+    public function images()
+    {
+        return $this->hasMany(Image::class);
+    }
+}
+
+class PostRequest extends FormRequest
+{
+    public function authorize()
+    {
+        return true;
+    }
+
+    public function rules()
+    {
+        return [
+            'title' => ['required', 'string', 'max:191'],
+            'body' => ['required', 'string', 'max:191'],
+            'slug.slug' => ['optional', 'string', 'max:191'],
+        ];
+    }
+}
+
+class PostController
+{
+    public function __construct(private PostService $postService)
+    {}
+
+    public function store(PostRequest $request)
+    {
+        DB::Transaction(function () use ($request, &$post) {
+            $post = $this->postService->store($request->validated());
+        });
+        
+        $this->load($post);
+        
+        return new PostResource($post);
+    }
+
+    public function update(PostRequest $request, Post $post)
+    {
+        DB::Transaction(function () use ($request, &$post) {
+            $post = $this->postService->update($request->validated(), $post);
+        });
+        
+        $this->load($post);
+        
+        return new PostResource($post);
+    }
+    
+    public function destroy(Post $post)
+    {
+        DB::Transaction(function () use (&$post) {
+            $post = $this->postService->destroy($post);
+        });
+    }
+    
+    private function load($post)
+    {
+        $post->loadMissing(['slug']);
+    }
+}
+
+class PostService
+{
+    public function __construct(private SlugService $slugService)
+    {}
+    
+    public function store(array $fill): Post
+    {
+        $post = new Post($fill);
+        $post->save();
+        
+        $this->slugService->store($fill['slug'], $post);
+    }
+
+    public function update(array $fill, Post $post): Post
+    {
+        $post->fill($fill);
+        $post->save();
+        
+        $this->slugService->store($fill['slug'], $post);
+    }
+}
 ```
 
 ## Testing
@@ -85,7 +218,7 @@ Please review [our security policy](../../security/policy) on how to report secu
 
 ## Credits
 
-- [:author_name](https://github.com/:author_username)
+- [Cory Baumer](https://github.com/Hexatex)
 - [All Contributors](../../contributors)
 
 ## License

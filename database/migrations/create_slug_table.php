@@ -8,12 +8,16 @@ return new class extends Migration
 {
     public function up()
     {
-        Schema::create('migration_table_name_table', function (Blueprint $table) {
+        Schema::create('slugs', function (Blueprint $table) {
             $table->id();
-
-            // add fields
-
+            $table->string('slug');
+            $table->morphs('sluggable');
             $table->timestamps();
         });
+    }
+
+    public function down()
+    {
+        Schema::drop('slugs');
     }
 };
